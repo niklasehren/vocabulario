@@ -1934,7 +1934,7 @@
         key = v.inf + z + p; n++;
       } while (key === alt && n < 10);
       const form = konj(v, z, p);
-      gAktuell = { key: key, zeit: z, loesungen: z === "ger" ? [form, gerundio(v)] : [form], anzeige: form, grund: "", optionen: konjOptionen(v, z, p) };
+      gAktuell = { key: key, zeit: z, loesungen: z === "ger" ? [form, gerundio(v)] : [form], anzeige: form, grund: "", optionen: konjOptionen(v, z, p), verb: v, person: p };
       $("gKopfL").textContent = ZEITEN[z].n;
       $("gKopfR").textContent = v.de;
       $("gAufgabe").textContent = "Person: " + PERS[p];
@@ -1946,7 +1946,9 @@
       do { s = zufall(auswahl); n++; } while (s.s === alt && auswahl.length > 1 && n < 10);
       const verg = ["perf", "ind", "imp"].filter((z) => gAktiv.includes(z));
       const raten = verg.length >= 2 && verg.includes(s.z);
-      gAktuell = { key: s.s, zeit: s.z, loesungen: s.a, anzeige: s.a[0], grund: s.w, optionen: satzOptionen(s) };
+      const sv = VB(s.v.split(",")[0].trim());
+      const sp = sv ? [0, 1, 2, 3, 4, 5].find((q) => konj(sv, s.z, q) === s.a[0]) : undefined;
+      gAktuell = { key: s.s, zeit: s.z, loesungen: s.a, anzeige: s.a[0], grund: s.w, optionen: satzOptionen(s), verb: sp === undefined ? null : sv, person: sp };
       $("gKopfL").textContent = raten ? (verg.length === 3 ? "Welche Vergangenheitszeit?" : verg.map((z) => ZEITEN[z].n).join(" oder ") + "?") : ZEITEN[s.z].n;
       $("gKopfR").textContent = "";
       $("gAufgabe").textContent = "Setze das Verb in der richtigen Form ein.";
@@ -1964,6 +1966,46 @@
     speichern(KEY_GS, gStand);
     if (ok) { gSession.ok++; gSession.serie++; } else { gSession.fail++; gSession.serie = 0; }
   }
+  // Gezielter Hinweis bei falscher Antwort: Ist die Eingabe eine andere Form desselben Verbs?
+  // Nur Text fürs Feedback, ändert nichts an der Bewertung.
+  function gFormKey(t) { return ohneAkz(gNorm(t)).replace(/\s+/g, ""); }
+  function gPersonen(ps) {
+    if (ps.length === 1 && !PERS[ps[0]].includes("/")) return "die " + PERS[ps[0]] + "-Form";
+    return "die Form für " + ps.map((q) => PERS[q]).join(" und ");
+  }
+  function gFormHinweis(eingabe, a) {
+    if (!a || !a.verb || a.person === undefined) return "";
+    const v = a.verb, z = a.zeit, p = a.person;
+    const roh = gNorm(eingabe), key = gFormKey(eingabe);
+    if (!key) return "";
+    const zeiten = ZKEYS.filter((t) => !(t === "ger" && v.noGer));
+    // Treffer suchen: zuerst exakt (mit Akzent), sonst ohne Akzent
+    const suche = (gleich) => {
+      // 1. gleiche Zeit, andere Person
+      const ps = [0, 1, 2, 3, 4, 5].filter((q) => q !== p && gleich(konj(v, z, q)));
+      if (ps.length) return { art: "person", ps: ps, form: konj(v, z, ps[0]) };
+      // 2. andere Zeit (bevorzugt gleiche Person)
+      const treffer = [];
+      zeiten.filter((t) => t !== z).forEach((t) => {
+        const qs = [0, 1, 2, 3, 4, 5].filter((q) => gleich(konj(v, t, q)));
+        const qq = qs.includes(p) ? [p] : qs;
+        if (qq.length) treffer.push({ t: t, qs: qq, form: konj(v, t, qq[0]) });
+        else if (t === "ger" && gleich(gerundio(v))) treffer.push({ t: t, qs: [], form: gerundio(v) });
+      });
+      if (!treffer.length) return null;
+      const gleichePers = treffer.filter((x) => x.qs.length === 1 && x.qs[0] === p);
+      return { art: "zeit", liste: gleichePers.length ? gleichePers : treffer };
+    };
+    const m = suche((f) => gNorm(f) === roh) || suche((f) => gFormKey(f) === key);
+    if (!m) return "";
+    if (m.art === "person") {
+      return "Das ist " + gPersonen(m.ps) + " (" + m.form + "). Gefragt war " + PERS[p] + ":";
+    }
+    const formen = Array.from(new Set(m.liste.map((x) => x.form)));
+    const teile = m.liste.map((x) => ZEITEN[x.t].n + (x.qs.length && !(x.qs.length === 1 && x.qs[0] === p) ? ", " + gPersonen(x.qs) : ""));
+    const pers = m.liste.some((x) => !(x.qs.length === 1 && x.qs[0] === p));
+    return "Das ist " + teile.join(" oder ") + " (" + formen.join(" / ") + "). Gefragt war " + ZEITEN[z].n + (pers ? ", " + PERS[p] : "") + ":";
+  }
   function gZeigeFeedback(ergebnis, eingabe) {
     const fb = $("gFeedback");
     const ok = ergebnis === "ok" || ergebnis === "akzent";
@@ -1974,7 +2016,7 @@
     else if (ergebnis === "akzent") b.textContent = "Fast perfekt, achte auf den Akzent:";
     else if (ergebnis === "akzentFalsch") b.textContent = "Der Akzent fehlt oder ist falsch. Richtig ist:";
     else if (eingabe === null) b.textContent = "Lösung:";
-    else b.textContent = "Nicht ganz. Richtig ist:";
+    else b.textContent = gFormHinweis(eingabe, gAktuell) || "Nicht ganz. Richtig ist:";
     const l = document.createElement("span");
     l.className = "l";
     l.textContent = gAktuell.anzeige;
