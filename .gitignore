@@ -1,0 +1,4 @@
+# Klartext-Vokabeln sind privat (in index.html nur verschlüsselt)
+Quelle/
+data*.txt
+.DS_Store
