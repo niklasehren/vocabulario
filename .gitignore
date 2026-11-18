@@ -2,3 +2,5 @@
 Quelle/
 data*.txt
 .DS_Store
+# SA-Paket im Klartext ist privat (in index.html nur verschlüsselt)
+sa-paket.json
